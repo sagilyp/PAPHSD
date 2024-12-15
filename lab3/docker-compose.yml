@@ -1,0 +1,136 @@
+version: '3.8'
+
+networks:
+  dev:
+
+services:
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./frontend:/usr/share/nginx/html
+    depends_on:
+      - api_gateway
+    networks:
+      - dev
+
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "15672:15672"  # Web UI
+      - "5672:5672"    # RabbitMQ Port
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - dev
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  api_gateway:
+    build:
+      context: ./api_gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - dev
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      #RESPONSE_QUEUE: response_queue
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+
+
+  backend_1:
+    build:
+      context: ./backend
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    #ports:
+    #  - "8001:8001"
+    networks:
+      - dev
+
+  backend_2:
+    build:
+      context: ./backend
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    #ports:
+    #  - "8001:8001"
+    networks:
+      - dev
+
+  backend_3:
+    build:
+      context: ./backend
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    #ports:
+    #  - "8001:8001"
+    networks:
+      - dev
+
+
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: finance_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dev
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d finance_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  load_test:
+    build:
+      context: ./tests
+    networks:
+      - dev
+    volumes:
+      - ./tests/test_log.txt:/app/test_log.txt
+    depends_on:
+      - api_gateway
+      - backend_1
+      - backend_2
+      - backend_3
+
+
+volumes:
+  db_data:

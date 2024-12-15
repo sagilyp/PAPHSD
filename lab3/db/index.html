@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трекер финансов</title>
+</head>
+<body>
+    <h1>Добро пожаловать в Трекер финансов</h1>
+
+    <div id="auth">
+        <h2>Авторизация</h2>
+        <input id="username" type="text" placeholder="Логин">
+        <input id="password" type="password" placeholder="Пароль">
+        <button onclick="login()">Войти</button>
+        <button onclick="register()">Регистрация</button>
+    </div>
+
+    <div id="tracker" style="display:none;">
+        <h2>Добавить транзакцию</h2>
+        <select id="type">
+            <option value="income">Доход</option>
+            <option value="expense">Расход</option>
+        </select>
+        <input id="category" type="text" placeholder="Категория">
+        <input id="amount" type="number" placeholder="Сумма">
+        <button onclick="addTransaction()">Добавить</button>
+
+        <h2>Диаграмма расходов</h2>
+        <canvas id="expenseChart" width="200" height="200" style="display:none;"></canvas>
+        <button onclick="getChart('expense')">Диаграмма расходов</button>
+
+        <h2>Диаграмма доходов</h2>
+        <canvas id="incomeChart" width="200" height="200" style="display:none;"></canvas>
+        <button onclick="getChart('income')">Диаграмма доходов</button>
+
+        <h3>Список транзакций</h3>
+        <div id="expense-list"></div>
+        <div id="income-list"></div>
+    </div>
+
+    <script>
+        let userId = null;
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
+            const data = await response.json();
+            if (response.ok) {
+                userId = data.user_id;
+                localStorage.setItem("user_id", userId);  // Можно сохранять в localStorage для использования на других страницах
+                document.getElementById('auth').style.display = 'none';
+                document.getElementById('tracker').style.display = 'block';
+                getChart('expense');
+                getChart('income');
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function register() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('Регистрация успешна!');
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function addTransaction() {
+            const type = document.getElementById('type').value;
+            const category = document.getElementById('category').value;
+            const amount = document.getElementById('amount').value;
+                // Используем userId из локального хранилища
+            const storedUserId = localStorage.getItem("user_id");
+            if (!storedUserId) {
+                alert("Пользователь не авторизован");
+                return;
+             }
+            await fetch('/api/transaction', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id: userId, type, category, amount})
+            });
+            showTransactionList(type)
+            getChart(type);
+        }
+
+        async function deleteTransaction(transactionId, type) {
+            await fetch(`/api/transaction/${transactionId}`, {
+                method: 'DELETE',
+            });
+            // После удаления транзакции, обновим диаграмму и список
+            showTransactionList(type)
+            getChart(type);
+        }
+
+        let expenseChartInstance = null; // Глобальная переменная для диаграммы расходов
+        let incomeChartInstance = null;  // Глобальная переменная для диаграммы доходов
+
+
+        async function getChart(type) {
+            const response = await fetch(`/api/transactions?user_id=${userId}&type=${type}`);
+            const data = await response.json();
+            // Убираем предыдущие диаграммы перед построением новой
+            //const listElement = type === 'expense' ? document.getElementById('expense-list') : document.getElementById('income-list');
+            const expenseChartElem = document.getElementById('expenseChart');
+            const incomeChartElem = document.getElementById('incomeChart');
+            if (type === 'expense' && expenseChartInstance) {
+                expenseChartInstance.destroy();
+                // incomeChartElem.style.display = 'none';
+                //expenseChartElem.style.display = 'block';
+            } if(type === 'income' && incomeChartInstance) {
+                incomeChartInstance.destroy();
+                //expenseChartElem.style.display = 'none';
+                //incomeChartElem.style.display = 'block';
+            }
+            const ctx = (type === 'expense') ? expenseChartElem.getContext('2d') : incomeChartElem.getContext('2d');
+            // Очищаем холст перед перерисовкой
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            const chartData = {};
+            data.transactions.forEach(tx => {
+                chartData[tx.category] = (chartData[tx.category] || 0) + tx.amount;
+            });
+
+            const chartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(chartData),
+                    datasets: [{
+                        data: Object.values(chartData),
+                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#ABC384'],
+                    }]
+                }
+            });
+            // Сохраняем объект диаграммы в глобальной переменной
+            if (type === 'expense') {
+                expenseChartInstance = chartInstance;
+            } else {
+                incomeChartInstance = chartInstance;
+            }
+
+            // Показываем/скрываем диаграмму в зависимости от типа
+            if (type === 'expense') {
+                incomeChartElem.style.display = 'none';
+                expenseChartElem.style.display = 'block';
+            } else {
+                expenseChartElem.style.display = 'none';
+                incomeChartElem.style.display = 'block';
+            }
+            showTransactionList(type);
+        }
+
+        async function showTransactionList(type) {
+            const response = await fetch(`/api/transactions?user_id=${userId}&type=${type}`);
+            const data = await response.json();
+            const listElement = type === 'expense' ? document.getElementById('expense-list') : document.getElementById('income-list');
+            listElement.innerHTML = `<h3>Транзакции ${type === 'expense' ? 'расходов' : 'доходов'}</h3>`;
+            data.transactions.forEach(tx => {
+                const txElement = document.createElement('div');
+                txElement.innerHTML = `${tx.created_at} - ${tx.category}: ${tx.amount} ₽
+                <button onclick="deleteTransaction(${tx.id}, '${type}')">Удалить</button>`;
+                listElement.appendChild(txElement);
+            });
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</body>
+</html>

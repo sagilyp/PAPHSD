@@ -1,0 +1,4 @@
+Total Requests: 1000
+Successful Requests: 948
+Failed Requests: 52
+Average Response Time: 0.122 seconds
